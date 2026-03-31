@@ -254,4 +254,4 @@ Suggested local workflow:
 
 ## License
 
-MIT (recommended). Add a LICENSE file if you want this to be explicit in repository metadata.
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.

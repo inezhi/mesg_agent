@@ -252,4 +252,4 @@ curl http://127.0.0.1:8080/
 
 ## 许可证
 
-建议使用 MIT。若用于公开仓库，请补充 LICENSE 文件。
+本项目采用 MIT 许可证，详见 [LICENSE](LICENSE)。
