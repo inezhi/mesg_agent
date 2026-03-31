@@ -44,7 +44,7 @@ Initialization order in startup:
 ```text
 .
 ├── main.py
-├── config-test.json
+├── config.yaml
 ├── core/
 │   ├── webhook_server.py
 │   ├── debounce.py
@@ -66,10 +66,10 @@ Initialization order in startup:
 - Python 3.10+
 - macOS / Linux / Windows
 
-Install dependencies manually:
+Install dependencies:
 
 ```bash
-pip install loguru croniter lancedb numpy
+pip install -r requirements.txt
 ```
 
 ## Quick Start
@@ -79,7 +79,7 @@ pip install loguru croniter lancedb numpy
 3. Start the service.
 
 ```bash
-export AGENT_CONFIG=./config-test.json
+export AGENT_CONFIG=./config.yaml
 python main.py
 ```
 
@@ -97,47 +97,57 @@ Expected response:
 
 ## Configuration
 
-By default, the app reads config-test.json in the repository root.
+By default, the app reads config.yaml in the repository root.
 You can override it using AGENT_CONFIG.
 
 Example configuration:
 
-```json
-{
-	"owner_ids": ["user_0", "user_1"],
-	"workspace": "./workspace",
-	"port": 8080,
-	"debounce_seconds": 3.0,
-	"message": {
-		"token": "YOUR_TOKEN",
-		"guid": "YOUR_GUID",
-		"api_url": "https://example.com/api/send"
-	},
-	"models": {
-		"default": "openrouter-xiaomi",
-		"providers": {
-			"openrouter-xiaomi": {
-				"api_base": "https://openrouter.ai/api/v1",
-				"api_key": "YOUR_API_KEY",
-				"model": "stepfun/step-3.5-flash:free",
-				"max_tokens": 8192,
-				"timeout": 120,
-				"extra_body": {}
-			}
-		}
-	},
-	"memory": {
-		"enabled": true,
-		"embedding_api": {
-			"api_base": "https://api.siliconflow.cn/v1/embeddings",
-			"api_key": "YOUR_EMBEDDING_API_KEY",
-			"model": "Qwen/Qwen3-Embedding-8B",
-			"dimension": 1024
-		},
-		"retrieve_top_k": 5,
-		"similarity_threshold": 0.92
-	}
-}
+```yaml
+# AI Agent configuration file
+# Used to configure messaging platform connection, model parameters, memory system, etc.
+
+# Admin ID list, debounce determines whether to reply to these users
+owner_ids:
+  - "user_0"
+  - "user_1"
+
+# Workspace path
+workspace: "./workspace"
+
+# Listening port
+port: 8080
+
+# Message debounce interval (seconds)
+debounce_seconds: 3.0
+
+# Messaging platform configuration
+message:
+  token: "YOUR_TOKEN"
+  guid: "YOUR_GUID"
+  api_url: "https://example.com/api/send"
+
+# Model configuration
+models:
+  default: "openrouter-xiaomi"
+  providers:
+    openrouter-xiaomi:
+      api_base: "https://openrouter.ai/api/v1"
+      api_key: "YOUR_API_KEY"
+      model: "stepfun/step-3.5-flash:free"
+      max_tokens: 8192
+      timeout: 120
+      extra_body: {}
+
+# Memory system configuration
+memory:
+  enabled: true
+  embedding_api:
+    api_base: "https://api.siliconflow.cn/v1/embeddings"
+    api_key: "YOUR_EMBEDDING_API_KEY"
+    model: "Qwen/Qwen3-Embedding-8B"
+    dimension: 1024
+  retrieve_top_k: 5
+  similarity_threshold: 0.92
 ```
 
 Important fields:

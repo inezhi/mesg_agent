@@ -67,3 +67,8 @@ config.local.json
 config.json
 config-test.json
 config*.local.json
+
+# YAML config files (to avoid committing secrets)
+*.yaml
+*.yml
+!config.yaml.example

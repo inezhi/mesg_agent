@@ -13,7 +13,7 @@ AI Agent - 入口模块 (Entry Point)
 """
 
 # 标准库
-import json
+import yaml
 import os
 import sys
 from http.server import HTTPServer
@@ -64,12 +64,12 @@ utils.print_start()
 # ============================================================
 def main():
     # ============================================================
-    #  从json配置文件中读取配置并解析
+    #  从yaml配置文件中读取配置并解析
     # ============================================================
     DATA_DIR = os.path.dirname(os.path.abspath(__file__))  # 当前py脚本所在目录
-    CONFIG_PATH = os.environ.get("AGENT_CONFIG", os.path.join(DATA_DIR, "config-test.json"))
+    CONFIG_PATH = os.environ.get("AGENT_CONFIG", os.path.join(DATA_DIR, "config.yaml"))
     with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-        CONFIG = json.load(f)
+        CONFIG = yaml.safe_load(f)
     utils.print_config(CONFIG)
 
     # 基本配置项解析
@@ -114,15 +114,6 @@ def main():
     # 6、初始化debounce模块
     debounce.init(DEBOUNCE_SECONDS, OWNER_IDS)
 
-    # ============================================================
-    #  文件持久化存储 (File Storage)
-    # ============================================================
-    # FILES_INDEX = os.path.join(FILES_DIR, "index.json")
-
-    # ============================================================
-    #  语音转文字 (WebSocket 流式 ASR)
-    # ============================================================
-    # ASR_CONFIG = CONFIG.get("asr", {})
 
     # ============================================================
     #  启动循环
@@ -133,9 +124,6 @@ def main():
     logger.info(f"[agent] owners={OWNER_IDS}")
     logger.info(f"[agent] model={CONFIG['models']['default']}")
     logger.info(f"[agent] files_dir={FILES_DIR}")
-
-    # if ASR_CONFIG:
-    #     log.info(f"[agent] asr ASR enabled (app_id={ASR_CONFIG.get('app_id', '?')})")
 
     # 创建多线程 HTTP 服务器：每个请求在独立线程中处理，避免阻塞主线程
     class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
@@ -153,10 +141,6 @@ def main():
     except KeyboardInterrupt:
         # 捕获 Ctrl+C 信号，优雅关闭服务器和 MCP 客户端
         logger.info("[agent] Shutting down, goodbye!")
-        # try:
-        #     mcp_client.close()
-        # except:
-        #     pass
 
 
 

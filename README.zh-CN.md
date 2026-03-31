@@ -42,7 +42,7 @@ Webhook POST -> webhook_server -> debounce -> llm.chat
 ```text
 .
 ├── main.py
-├── config-test.json
+├── config.yaml
 ├── core/
 │   ├── webhook_server.py
 │   ├── debounce.py
@@ -67,7 +67,7 @@ Webhook POST -> webhook_server -> debounce -> llm.chat
 建议安装依赖：
 
 ```bash
-pip install loguru croniter lancedb numpy
+pip install -r requirements.txt
 ```
 
 ## 快速开始
@@ -77,7 +77,7 @@ pip install loguru croniter lancedb numpy
 3. 启动服务。
 
 ```bash
-export AGENT_CONFIG=./config-test.json
+export AGENT_CONFIG=./config.yaml
 python main.py
 ```
 
@@ -95,47 +95,57 @@ curl http://127.0.0.1:8080/
 
 ## 配置说明
 
-默认读取仓库根目录下的 config-test.json。
+默认读取仓库根目录下的 config.yaml。
 可通过 AGENT_CONFIG 覆盖。
 
 示例配置：
 
-```json
-{
-  "owner_ids": ["user_0", "user_1"],
-  "workspace": "./workspace",
-  "port": 8080,
-  "debounce_seconds": 3.0,
-  "message": {
-    "token": "YOUR_TOKEN",
-    "guid": "YOUR_GUID",
-    "api_url": "https://example.com/api/send"
-  },
-  "models": {
-    "default": "openrouter-xiaomi",
-    "providers": {
-      "openrouter-xiaomi": {
-        "api_base": "https://openrouter.ai/api/v1",
-        "api_key": "YOUR_API_KEY",
-        "model": "stepfun/step-3.5-flash:free",
-        "max_tokens": 8192,
-        "timeout": 120,
-        "extra_body": {}
-      }
-    }
-  },
-  "memory": {
-    "enabled": true,
-    "embedding_api": {
-      "api_base": "https://api.siliconflow.cn/v1/embeddings",
-      "api_key": "YOUR_EMBEDDING_API_KEY",
-      "model": "Qwen/Qwen3-Embedding-8B",
-      "dimension": 1024
-    },
-    "retrieve_top_k": 5,
-    "similarity_threshold": 0.92
-  }
-}
+```yaml
+# AI Agent 配置文件
+# 用于配置消息平台连接、模型参数、记忆系统等
+
+# 管理员 ID 列表，debounce判断是否回这个人的信息
+owner_ids:
+  - "user_0"
+  - "user_1"
+
+# 工作空间路径
+workspace: "./workspace"
+
+# 监听端口
+port: 8080
+
+# 消息防抖间隔（秒）
+debounce_seconds: 3.0
+
+# 消息平台配置
+message:
+  token: "YOUR_TOKEN"
+  guid: "YOUR_GUID"
+  api_url: "https://example.com/api/send"
+
+# 模型配置
+models:
+  default: "openrouter-xiaomi"
+  providers:
+    openrouter-xiaomi:
+      api_base: "https://openrouter.ai/api/v1"
+      api_key: "YOUR_API_KEY"
+      model: "stepfun/step-3.5-flash:free"
+      max_tokens: 8192
+      timeout: 120
+      extra_body: {}
+
+# 记忆系统配置
+memory:
+  enabled: true
+  embedding_api:
+    api_base: "https://api.siliconflow.cn/v1/embeddings"
+    api_key: "YOUR_EMBEDDING_API_KEY"
+    model: "Qwen/Qwen3-Embedding-8B"
+    dimension: 1024
+  retrieve_top_k: 5
+  similarity_threshold: 0.92
 ```
 
 关键字段：
