@@ -1,0 +1,69 @@
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Packaging / build
+.Python
+build/
+dist/
+.eggs/
+*.egg-info/
+pip-wheel-metadata/
+
+# Virtual env
+.venv/
+venv/
+env/
+ENV/
+
+# Test / coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# =========================
+# IDE / OS
+# =========================
+.DS_Store
+.vscode/
+.idea/
+
+# =========================
+# Runtime logs
+# =========================
+*.log
+agent_debug.log
+
+# =========================
+# Project runtime data
+# =========================
+sys_sessions/
+sys_memory_db/
+sessions/
+memory_db/
+jobs.json
+
+# Workspace runtime files (通常是运行时产物)
+workspace/
+
+# =========================
+# Local config / secrets
+# =========================
+.env
+.env.*
+*.local.json
+config.local.json
+
+# local config containing secrets
+config.json
+config-test.json
+config*.local.json
