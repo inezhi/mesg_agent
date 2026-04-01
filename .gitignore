@@ -46,8 +46,8 @@ agent_debug.log
 # =========================
 # Project runtime data
 # =========================
-sys_sessions/
-sys_memory_db/
+_sys_sessions/
+_sys_memory_db/
 sessions/
 memory_db/
 jobs.json

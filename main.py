@@ -81,10 +81,10 @@ def main():
     # ============================================================
     #  必要目录准备
     # ============================================================
-    SESSIONS_DIR = os.path.join(DATA_DIR, "sys_sessions")  # 会话历史记录存储
+    SESSIONS_DIR = os.path.join(DATA_DIR, "_sys_sessions")  # 会话历史记录存储
     JOBS_FILE = os.path.join(DATA_DIR, "sys_jobs.json")    # 定时任务持久化文件
-    _mem_db = os.path.join(DATA_DIR, 'sys_memory_db')      # 记忆数据库目录
-    FILES_DIR = os.path.join(WORKSPACE, "files")       # 接收到的媒体文件存储
+    _mem_db = os.path.join(DATA_DIR, '_sys_memory_db')      # 记忆数据库目录
+    FILES_DIR = os.path.join(WORKSPACE, "_files")       # 接收到的媒体文件存储
     
 
     os.makedirs(SESSIONS_DIR, exist_ok=True)
