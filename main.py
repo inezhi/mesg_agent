@@ -32,6 +32,7 @@ import core.tools as tools
 import core.utils as utils
 import core.debounce as debounce
 import core.mcp_client as mcp_client
+import core.feishu_ws_client as feishu_ws_client
 
 
 # from log.logger import print_config, print_start
@@ -70,7 +71,7 @@ def main():
     CONFIG_PATH = os.environ.get("AGENT_CONFIG", os.path.join(DATA_DIR, "config.yaml"))
     with open(CONFIG_PATH, "r", encoding="utf-8") as f:
         CONFIG = yaml.safe_load(f)
-    utils.print_config(CONFIG)
+    # utils.print_config(CONFIG)
 
     # 基本配置项解析
     OWNER_IDS = set(str(x) for x in CONFIG.get("owner_ids", []))        # 管理员 ID 列表，debounce判断是否回这个人的信息
@@ -113,6 +114,17 @@ def main():
 
     # 6、初始化debounce模块
     debounce.init(DEBOUNCE_SECONDS, OWNER_IDS)
+
+    # 7、初始化飞书 WebSocket 客户端（MVP-2：接收飞书消息）
+    try:
+        feishu_config = CONFIG.get("message", {}).get("feishu", {})
+        if feishu_config.get("app_id") and feishu_config.get("app_secret"):
+            app_id, app_secret = feishu_ws_client.init(feishu_config)
+            feishu_ws_client.start(app_id, app_secret)
+        else:
+            logger.warning("[main] 飞书配置不完整，跳过 WebSocket 初始化")
+    except Exception as e:
+        logger.error(f"[main] 飞书 WebSocket 初始化失败: {e}")
 
 
     # ============================================================

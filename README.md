@@ -1,6 +1,6 @@
 # mesg-agent-repo
 
-A lightweight message-platform agent built with Python.
+A lightweight message-platform agent built with Python, supporting Feishu (Lark) integration.
 
 Language: English | [简体中文](README.zh-CN.md)
 
@@ -10,10 +10,11 @@ Language: English | [简体中文](README.zh-CN.md)
 
 ## Overview
 
-mesg-agent-repo is a webhook-driven AI agent service. It receives incoming messages from a messaging platform, applies debounce/merge logic, sends requests to an OpenAI-compatible LLM API, and replies back through a message adapter.
+mesg-agent-repo is a webhook-driven AI agent service. It receives incoming messages from messaging platforms (Feishu/Lark, Webhook), applies debounce/merge logic, sends requests to an OpenAI-compatible LLM API, and replies back through a message adapter.
 
 Core capabilities:
 
+- **Feishu/Lark Integration**: Full support for Feishu messaging platform via WebSocket and Webhook
 - Threaded HTTP webhook server
 - Debounced multi-message merge per user
 - Session persistence on local JSON files
@@ -22,6 +23,8 @@ Core capabilities:
 
 ## Architecture
 
+### General Flow
+
 ```text
 Webhook POST -> webhook_server -> debounce -> llm.chat
                                                     |
@@ -29,6 +32,25 @@ Webhook POST -> webhook_server -> debounce -> llm.chat
                                                     +-> scheduler context bridge
                                                     +-> memory module (init ready, retrieval hook reserved)
 ```
+
+### Feishu Integration Flow
+
+```text
+Feishu Platform
+       |
+       +-- WebSocket --> feishu_ws_client --> feishu_handler --> debounce --> llm.chat
+       |                                                              |
+       +-- Webhook  --> webhook_server --> feishu_handler ------------>|
+                                                                            |
+       feishu_messenger <--------------------------------------------------+
+       |
+       +--> Send reply back to Feishu
+```
+
+**Feishu Components:**
+- `feishu_ws_client.py` - WebSocket client for real-time message receiving
+- `feishu_handler.py` - Event parsing and message handling
+- `feishu_messenger.py` - Message sending with reply thread support
 
 Initialization order in startup:
 
@@ -46,19 +68,24 @@ Initialization order in startup:
 ├── main.py
 ├── config.yaml
 ├── core/
-│   ├── webhook_server.py
-│   ├── debounce.py
-│   ├── llm.py
-│   ├── scheduler.py
-│   ├── message.py
-│   ├── memory.py
-│   ├── tools.py
-│   ├── utils.py
-│   └── mcp_client.py
-├── sys_sessions/
-├── sys_memory_db/
+│   ├── webhook_server.py    # HTTP webhook handler
+│   ├── debounce.py          # Message debounce/merge logic
+│   ├── llm.py               # LLM chat interface
+│   ├── scheduler.py         # Background task scheduler
+│   ├── message.py           # Message platform adapter (Feishu supported)
+│   ├── memory.py            # Long-term memory with LanceDB
+│   ├── tools.py             # Tool registry and execution
+│   ├── utils.py             # Utility functions
+│   ├── mcp_client.py        # MCP client (reserved)
+│   ├── feishu_ws_client.py  # Feishu WebSocket client
+│   ├── feishu_handler.py    # Feishu event handler
+│   └── feishu_messenger.py  # Feishu message sender
+├── doc/
+│   └── feishu/              # Feishu integration documentation
+├── sys_sessions/            # Session storage
+├── sys_memory_db/           # Memory database
 └── workspace/
-		└── files/
+    └── files/               # Workspace files
 ```
 
 ## Requirements
@@ -128,15 +155,17 @@ debounce_seconds: 3.0
 
 # Messaging platform configuration
 message:
-  token: "YOUR_TOKEN"
-  guid: "YOUR_GUID"
-  api_url: "https://example.com/api/send"
+  platform: "feishu"
+  feishu:
+    app_id: "cli_xxxxxxxxxxxxxxxx"
+    app_secret: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    my_open_id: "ou_xxxxxxxxxxxxxxxx"
 
 # Model configuration
 models:
-  default: "openrouter-xiaomi"
+  default: "openrouter-free"
   providers:
-    openrouter-xiaomi:
+    openrouter-free:
       api_base: "https://openrouter.ai/api/v1"
       api_key: "YOUR_API_KEY"
       model: "stepfun/step-3.5-flash:free"
@@ -162,6 +191,10 @@ Important fields:
 - debounce_seconds: message merge window per sender
 - models.default: active provider key in models.providers
 - memory.enabled: toggle memory subsystem initialization
+- message.platform: message platform type, currently supports "feishu"
+- message.feishu.app_id: Feishu app ID (get from https://open.feishu.cn/app)
+- message.feishu.app_secret: Feishu app secret
+- message.feishu.my_open_id: Bot's own open_id (get from https://open.feishu.cn/document/faq/trouble-shooting/how-to-obtain-openid)
 
 ## Webhook Contract
 
@@ -169,35 +202,44 @@ Endpoint:
 
 - POST /
 
-Supported message branch in current code:
+Supported event type:
 
-- cmd == 15000
-- msgType in [0, 2] (text/reply-like text)
+- `im.message.receive_v1` - Receive message event
 
-Sample payload:
+Sample payload (Feishu format):
 
 ```json
 {
-	"data": [
-		{
-			"cmd": 15000,
-			"senderId": "user_1",
-			"userId": "agent_1",
-			"msgType": 0,
-			"msgData": {
-				"content": "hello"
-			}
-		}
-	]
+  "schema": "2.0",
+  "header": {
+    "event_id": "test_001",
+    "event_type": "im.message.receive_v1",
+    "create_time": "1234567890"
+  },
+  "event": {
+    "message": {
+      "message_id": "om_test_001",
+      "chat_type": "p2p",
+      "message_type": "text",
+      "content": "{\"text\":\"hello\"}",
+      "sender": {
+        "sender_id": {
+          "open_id": "ou_0XXXXXXXXXXXX"
+        },
+        "sender_type": "user"
+      }
+    }
+  }
 }
 ```
 
-Heartbeat payload is accepted and ignored:
+Field description:
 
-```json
-{
-	"testMsg": "heartbeat"
-}
+- `event_type`: Event type, currently supports `im.message.receive_v1`
+- `chat_type`: Chat type, `p2p` (private) or `group` (group chat)
+- `message_type`: Message type, currently supports `text`
+- `content`: Message content in JSON string format
+- `open_id`: Unique identifier of the sender
 ```
 
 ## Data Persistence
@@ -229,6 +271,11 @@ Trigger call:
 
 Implemented:
 
+- **Feishu (Lark) Integration**: Full support via WebSocket and Webhook
+  - Real-time message receiving via WebSocket
+  - Message sending with reply thread support
+  - Event handling and parsing
+  - Async message processing with deduplication
 - Threaded webhook handling
 - Debounce and message merge
 - OpenAI-compatible LLM request flow
@@ -238,10 +285,9 @@ Implemented:
 
 Not fully implemented yet:
 
-- Real outbound message API integration in message.py
 - Production-ready tool implementations in tools.py
 - Tool execution loop is reserved in llm.py (code path currently commented)
-- Image input branch currently raises ValueError("暂不支持图片")
+- Image input branch currently raises ValueError("Image not supported yet")
 - mcp_client.py is currently empty
 
 ## Security Notes
@@ -252,10 +298,12 @@ Not fully implemented yet:
 
 ## Development Roadmap
 
-1. Connect real message platform API in message adapter
+1. ~~Connect real message platform API in message adapter~~ ✅ Feishu integration completed
 2. Complete tool registry + execution loop
 3. Enable memory retrieval injection in chat path
 4. Add requirements.txt and basic tests
+5. Support Feishu image messages
+6. Support Feishu group @ mentions
 
 ## Contributing
 

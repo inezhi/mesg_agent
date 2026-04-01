@@ -1,6 +1,6 @@
 # mesg-agent-repo
 
-一个基于 Python 的轻量消息平台 Agent。
+一个基于 Python 的轻量消息平台 Agent，支持飞书（Feishu/Lark）集成。
 
 语言: [English](README.md) | 简体中文
 
@@ -12,13 +12,16 @@
 
 mesg-agent-repo 是一个由 Webhook 驱动的 AI Agent 服务：
 
-- 接收消息平台回调
+- 接收消息平台回调（支持飞书、Webhook）
 - 对同一用户短时间内的多条消息进行防抖合并
 - 调用 OpenAI 兼容接口进行对话
 - 通过消息适配层回发结果
 - 提供会话持久化、调度任务与记忆系统扩展点
+- **完整支持飞书平台**：WebSocket 实时接收、消息回复引用、异步处理
 
 ## 架构概览
+
+### 通用流程
 
 ```text
 Webhook POST -> webhook_server -> debounce -> llm.chat
@@ -27,6 +30,25 @@ Webhook POST -> webhook_server -> debounce -> llm.chat
                                                 +-> 调度会话上下文桥接
                                                 +-> 记忆模块 (已初始化，检索注入预留)
 ```
+
+### 飞书集成流程
+
+```text
+飞书平台
+    |
+    +-- WebSocket --> feishu_ws_client --> feishu_handler --> debounce --> llm.chat
+    |                                                              |
+    +-- Webhook  --> webhook_server --> feishu_handler ------------>|
+                                                                         |
+    feishu_messenger <--------------------------------------------------+
+    |
+    +--> 发送回复到飞书
+```
+
+**飞书组件：**
+- `feishu_ws_client.py` - WebSocket 客户端，实时接收消息
+- `feishu_handler.py` - 事件解析和消息处理
+- `feishu_messenger.py` - 消息发送，支持回复引用
 
 启动初始化顺序：
 
@@ -44,19 +66,24 @@ Webhook POST -> webhook_server -> debounce -> llm.chat
 ├── main.py
 ├── config.yaml
 ├── core/
-│   ├── webhook_server.py
-│   ├── debounce.py
-│   ├── llm.py
-│   ├── scheduler.py
-│   ├── message.py
-│   ├── memory.py
-│   ├── tools.py
-│   ├── utils.py
-│   └── mcp_client.py
-├── sys_sessions/
-├── sys_memory_db/
+│   ├── webhook_server.py    # HTTP Webhook 处理器
+│   ├── debounce.py          # 消息防抖/合并逻辑
+│   ├── llm.py               # LLM 对话接口
+│   ├── scheduler.py         # 后台任务调度器
+│   ├── message.py           # 消息平台适配器（支持飞书）
+│   ├── memory.py            # 基于 LanceDB 的长期记忆
+│   ├── tools.py             # 工具注册和执行
+│   ├── utils.py             # 工具函数
+│   ├── mcp_client.py        # MCP 客户端（预留）
+│   ├── feishu_ws_client.py  # 飞书 WebSocket 客户端
+│   ├── feishu_handler.py    # 飞书事件处理器
+│   └── feishu_messenger.py  # 飞书消息发送器
+├── doc/
+│   └── feishu/              # 飞书集成文档
+├── sys_sessions/            # 会话存储
+├── sys_memory_db/           # 记忆数据库
 └── workspace/
-    └── files/
+    └── files/               # 工作空间文件
 ```
 
 ## 环境要求
@@ -126,15 +153,17 @@ debounce_seconds: 3.0
 
 # 消息平台配置
 message:
-  token: "YOUR_TOKEN"
-  guid: "YOUR_GUID"
-  api_url: "https://example.com/api/send"
+  platform: "feishu"
+  feishu:
+    app_id: "cli_xxxxxxxxxxxxxxxx"
+    app_secret: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    my_open_id: "ou_xxxxxxxxxxxxxxxx"
 
 # 模型配置
 models:
-  default: "openrouter-xiaomi"
+  default: "openrouter-free"
   providers:
-    openrouter-xiaomi:
+    openrouter-free:
       api_base: "https://openrouter.ai/api/v1"
       api_key: "YOUR_API_KEY"
       model: "stepfun/step-3.5-flash:free"
@@ -160,6 +189,10 @@ memory:
 - debounce_seconds: 防抖窗口时长（秒）
 - models.default: 当前启用的模型提供方
 - memory.enabled: 是否启用记忆系统初始化
+- message.platform: 消息平台类型，目前支持 "feishu"
+- message.feishu.app_id: 飞书应用 ID（从 https://open.feishu.cn/app 获取）
+- message.feishu.app_secret: 飞书应用密钥
+- message.feishu.my_open_id: 机器人自身的 open_id（从 https://open.feishu.cn/document/faq/trouble-shooting/how-to-obtain-openid 获取）
 
 ## Webhook 协议
 
@@ -167,35 +200,44 @@ memory:
 
 - POST /
 
-当前已处理分支：
+支持的事件类型：
 
-- cmd == 15000
-- msgType in [0, 2]（文本类）
+- `im.message.receive_v1` - 接收消息事件
 
-示例请求体：
+示例请求体（飞书格式）：
 
 ```json
 {
-  "data": [
-    {
-      "cmd": 15000,
-      "senderId": "user_1",
-      "userId": "agent_1",
-      "msgType": 0,
-      "msgData": {
-        "content": "你好"
+  "schema": "2.0",
+  "header": {
+    "event_id": "test_001",
+    "event_type": "im.message.receive_v1",
+    "create_time": "1234567890"
+  },
+  "event": {
+    "message": {
+      "message_id": "om_test_001",
+      "chat_type": "p2p",
+      "message_type": "text",
+      "content": "{\"text\":\"你好\"}",
+      "sender": {
+        "sender_id": {
+          "open_id": "ou_0XXXXXXXXXXXX"
+        },
+        "sender_type": "user"
       }
     }
-  ]
+  }
 }
 ```
 
-心跳包会被识别并忽略：
+字段说明：
 
-```json
-{
-  "testMsg": "heartbeat"
-}
+- `event_type`: 事件类型，目前支持 `im.message.receive_v1`
+- `chat_type`: 聊天类型，`p2p`（私聊）或 `group`（群聊）
+- `message_type`: 消息类型，目前支持 `text`
+- `content`: 消息内容，JSON 字符串格式
+- `open_id`: 发送者的唯一标识
 ```
 
 ## 数据落盘
@@ -227,6 +269,11 @@ memory:
 
 已实现：
 
+- **飞书（Feishu/Lark）集成**：完整支持 WebSocket 和 Webhook
+  - WebSocket 实时接收消息
+  - 消息发送支持回复引用
+  - 事件处理和解析
+  - 异步消息处理与去重
 - 多线程 Webhook 处理
 - 文本消息防抖与合并
 - OpenAI 兼容 LLM 调用流程
@@ -236,7 +283,6 @@ memory:
 
 尚未完善：
 
-- message.py 目前为日志模拟发送，未接入真实消息平台 API
 - tools.py 仅保留注册框架，缺少实际工具实现
 - llm.py 的工具执行循环代码路径当前注释
 - llm.py 的图片输入分支当前会抛出 ValueError("暂不支持图片")
@@ -250,10 +296,12 @@ memory:
 
 ## 开发路线
 
-1. 接入真实消息发送 API
+1. ~~接入真实消息发送 API~~ ✅ 飞书集成已完成
 2. 完成工具定义与执行闭环
 3. 打通记忆检索注入链路
 4. 增加 requirements.txt 与基础测试
+5. 支持飞书图片消息
+6. 支持飞书群聊 @ 功能
 
 ## 贡献指南
 

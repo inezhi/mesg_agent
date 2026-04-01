@@ -40,7 +40,7 @@ def init(models_config, workspace, owner_id, sessions_dir):
     _workspace = workspace
     _owner_id = owner_id
     _sessions_dir = sessions_dir
-    logger.info(f"[llm] (2)LLM 组件已初始化，模型配置: {_config}")
+    logger.info(f"[llm] (2)LLM 组件已初始化")
 
 
 # ============================================================
@@ -392,7 +392,7 @@ def _build_system_prompt():
         - 建议保持文件内容简洁，过长的系统提示会消耗 token 并可能分散 LLM 注意力
     """
     now_str = datetime.now(CST).strftime("%Y-%m-%d %H:%M:%S CST")
-    parts = [f"你是用户的私人 AI 助手。\n当前系统时间: {now_str}\n"]
+    parts = [f"你是用户的私人 AI 助手。\n当前系统时间: {now_str}\n\n重要：回复的内容会作为消息发送到用户的IM即时通信平台，所以请尽量简洁，控制在500字以内。\n"]
     for filename in ["SOUL.md", "AGENT.md", "USER.md"]:
         fpath = os.path.join(_workspace, filename)
         if os.path.exists(fpath):

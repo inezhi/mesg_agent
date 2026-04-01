@@ -4,8 +4,7 @@
 
 # 管理员 ID 列表，debounce判断是否回这个人的信息
 owner_ids:
-  - "YOUR_USER_ID_1"
-  - "YOUR_USER_ID_2"
+  - "YOUR_USER_ID"
 
 # 工作空间路径
 workspace: "./workspace"
@@ -18,7 +17,11 @@ debounce_seconds: 3.0
 
 # 消息平台配置
 message:
-  api_url: "YOUR_MESSAGE_API_URL"
+  platform: "feishu"
+  feishu:
+    app_id: "cli_xxxxxxxxxxxxxxxx"
+    app_secret: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    my_open_id: "ou_xxxxxxxxxxxxxxxx"
 
 
 # 模型配置
