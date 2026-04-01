@@ -70,7 +70,7 @@ def main():
     CONFIG_PATH = os.environ.get("AGENT_CONFIG", os.path.join(DATA_DIR, "config.yaml"))
     with open(CONFIG_PATH, "r", encoding="utf-8") as f:
         CONFIG = yaml.safe_load(f)
-    utils.print_config(CONFIG)
+    # utils.print_config(CONFIG)
 
     # 基本配置项解析
     OWNER_IDS = set(str(x) for x in CONFIG.get("owner_ids", []))        # 管理员 ID 列表，debounce判断是否回这个人的信息
