@@ -52,7 +52,8 @@ def parse_event(event_json: dict) -> tuple[str, str, str]:
             raise ValueError("无法获取发送者 open_id")
 
         msg_type = message.get("message_type")
-        if msg_type != "text":
+        # WebSocket 事件可能没有 message_type，通过 content 判断
+        if msg_type and msg_type != "text":
             raise ValueError(f"不支持的消息类型: {msg_type}")
 
         content_str = message.get("content", "{}")
