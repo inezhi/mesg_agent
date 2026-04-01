@@ -21,6 +21,7 @@ except ImportError:
     logger.warning("[feishu_ws_client] lark-oapi SDK 未安装，请运行: pip install lark-oapi")
 
 import core.feishu_handler as feishu_handler
+import core.feishu_messenger as feishu_messenger
 import core.llm as llm
 
 _cli = None
@@ -167,7 +168,7 @@ def _on_message_receive(data: im.v1.P2ImMessageReceiveV1) -> None:
 
 def _process_message_async(open_id: str, text: str, chat_type: str):
     """
-    后台线程异步处理消息（调用 LLM）
+    后台线程异步处理消息（调用 LLM 并发送回复）
 
     Args:
         open_id: 发送者 open_id
@@ -179,6 +180,10 @@ def _process_message_async(open_id: str, text: str, chat_type: str):
         session_key = f"dm_{open_id}"
         reply = llm.chat(text, session_key)
         logger.info(f"[feishu_ws_client] 🤖 LLM 回复: {reply}")
+
+        # MVP-4：将 LLM 回复发送回飞书
+        feishu_messenger.reply_message(open_id, reply, chat_type)
+        logger.info(f"[feishu_ws_client] ✅ 回复已发送给用户")
     except Exception as e:
         logger.error(f"[feishu_ws_client] 异步处理消息失败: {e}")
 

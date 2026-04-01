@@ -267,3 +267,28 @@ def _send_single_message(open_id: str, content: str, index: int, total: int, use
                 time.sleep(delay)
             else:
                 raise RuntimeError(f"发送消息失败，已重试 {max_retries} 次: {e}")
+
+
+def reply_message(open_id: str, reply_text: str, chat_type: str = "p2p"):
+    """
+    回复飞书消息（MVP-4：将 LLM 回复发送给用户）
+
+    根据聊天类型选择发送方式：
+    - p2p：直接发送给用户
+    - group：@用户后发送（暂不实现群聊）
+
+    Args:
+        open_id: 用户 open_id
+        reply_text: LLM 生成的回复内容
+        chat_type: 聊天类型，p2p 或 group
+    """
+    if chat_type == "p2p":
+        # 私聊直接发送
+        send_text(open_id, reply_text)
+        logger.info(f"[feishu_messenger] 已回复用户 {open_id}: {reply_text[:50]}...")
+    else:
+        # 群聊暂不实现
+        logger.warning(f"[feishu_messenger] 群聊回复暂未实现: chat_type={chat_type}")
+
+
+
