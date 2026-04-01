@@ -17,7 +17,7 @@ from loguru import logger
 import core.debounce as debounce
 
 
-def parse_event(event_json: dict) -> tuple[str, str, str]:
+def parse_event(event_json: dict) -> tuple[str, str, str, str, str]:
     """
     解析飞书事件 JSON，提取关键信息
 
@@ -25,7 +25,7 @@ def parse_event(event_json: dict) -> tuple[str, str, str]:
         event_json: 飞书 im.message.receive_v1 事件格式
 
     Returns:
-        (open_id, text, chat_type)
+        (open_id, text, chat_type, chat_id, message_id)
 
     Raises:
         ValueError: 解析失败或消息格式不支持
@@ -39,6 +39,8 @@ def parse_event(event_json: dict) -> tuple[str, str, str]:
         message = event_data.get("message", {})
 
         chat_type = message.get("chat_type", "p2p")
+        chat_id = message.get("chat_id", "")
+        message_id = message.get("message_id", "")
 
         sender = message.get("sender", {})
         sender_type = sender.get("sender_type")
@@ -63,7 +65,7 @@ def parse_event(event_json: dict) -> tuple[str, str, str]:
             raise ValueError("消息内容为空")
 
         logger.info(f"[feishu_handler] 解析成功: open_id={open_id}, text={text[:50]}, chat_type={chat_type}")
-        return open_id, text, chat_type
+        return open_id, text, chat_type, chat_id, message_id
 
     except json.JSONDecodeError as e:
         raise ValueError(f"消息内容JSON解析失败: {e}")

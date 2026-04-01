@@ -147,14 +147,14 @@ def _on_message_receive(data: im.v1.P2ImMessageReceiveV1) -> None:
         event = _convert_to_event_format(data)
 
         # 解析事件
-        open_id, text, chat_type = feishu_handler.parse_event(event)
+        open_id, text, chat_type, chat_id, message_id = feishu_handler.parse_event(event)
 
         logger.info(f"[feishu_ws_client] 💬 收到消息: {text}")
 
         # 后台线程异步处理 LLM，避免阻塞导致飞书重推
         thread = threading.Thread(
             target=_process_message_async,
-            args=(open_id, text, chat_type),
+            args=(open_id, text, chat_type, chat_id, message_id),
             daemon=True
         )
         thread.start()
@@ -166,7 +166,7 @@ def _on_message_receive(data: im.v1.P2ImMessageReceiveV1) -> None:
         logger.error(f"[feishu_ws_client] 处理消息事件失败: {e}")
 
 
-def _process_message_async(open_id: str, text: str, chat_type: str):
+def _process_message_async(open_id: str, text: str, chat_type: str, chat_id: str, message_id: str):
     """
     后台线程异步处理消息（调用 LLM 并发送回复）
 
@@ -174,6 +174,8 @@ def _process_message_async(open_id: str, text: str, chat_type: str):
         open_id: 发送者 open_id
         text: 消息文本
         chat_type: 聊天类型
+        chat_id: 群聊 ID（群聊时使用）
+        message_id: 消息 ID（用于创建飞书"回复"）
     """
     try:
         # 调用 LLM 生成回复（使用 dm_{open_id} 作为 session_id 保持上下文）
@@ -181,8 +183,8 @@ def _process_message_async(open_id: str, text: str, chat_type: str):
         reply = llm.chat(text, session_key)
         logger.info(f"[feishu_ws_client] 🤖 LLM 回复: {reply}")
 
-        # MVP-4：将 LLM 回复发送回飞书
-        feishu_messenger.reply_message(open_id, reply, chat_type)
+        # MVP-4：将 LLM 回复发送回飞书（使用飞书"回复"功能创建带引用线的消息）
+        feishu_messenger.reply_message(open_id, reply, chat_type, chat_id, text, message_id)
         logger.info(f"[feishu_ws_client] ✅ 回复已发送给用户")
     except Exception as e:
         logger.error(f"[feishu_ws_client] 异步处理消息失败: {e}")
@@ -204,10 +206,12 @@ def _convert_to_event_format(data: im.v1.P2ImMessageReceiveV1) -> dict:
         },
         "event": {
             "message": {
+                "message_id": data.event.message.message_id,
                 "chat_type": data.event.message.chat_type,
+                "chat_id": data.event.message.chat_id,
                 "content": data.event.message.content,
                 "mentions": [
-                    {"id": {"open_id": mention.id.open_id}} 
+                    {"id": {"open_id": mention.id.open_id}}
                     for mention in (data.event.message.mentions or [])
                 ] if data.event.message.mentions else [],
                 "sender": {

@@ -12,7 +12,7 @@ from loguru import logger
 
 try:
     from lark_oapi import Client
-    from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
+    from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody, ReplyMessageRequest, ReplyMessageRequestBody
     LARK_SDK_AVAILABLE = True
 except ImportError:
     LARK_SDK_AVAILABLE = False
@@ -114,29 +114,51 @@ def _should_use_card(content: str) -> bool:
     return has_markdown or is_long_and_multiline or has_code_block
 
 
-def _build_card_content(content: str) -> dict:
+def _build_card_content(content: str, original_message: str = "") -> dict:
     """
     构建新版卡片消息内容 (JSON 2.0)
     支持完整 Markdown 语法：标题、代码块、列表等
 
     Args:
         content: Markdown 内容
+        original_message: 用户原始消息（用于引用显示）
 
     Returns:
         卡片 JSON 2.0 结构
     """
+    elements = []
+
+    # 如果有原始消息，添加引用区域
+    if original_message:
+        # 截断过长的原始消息
+        quoted_text = original_message[:200] + "..." if len(original_message) > 200 else original_message
+        # 转义特殊字符
+        quoted_text = quoted_text.replace("<", "&lt;").replace(">", "&gt;")
+        # 添加引用格式
+        quoted_content = f"> **你的问题：**\n> {quoted_text}"
+
+        elements.append({
+            "tag": "markdown",
+            "content": quoted_content
+        })
+        # 添加分隔线
+        elements.append({
+            "tag": "hr"
+        })
+
+    # 添加回复内容
+    elements.append({
+        "tag": "markdown",
+        "content": content
+    })
+
     return {
         "schema": "2.0",
         "config": {
             "width_mode": "fill"
         },
         "body": {
-            "elements": [
-                {
-                    "tag": "markdown",
-                    "content": content
-                }
-            ]
+            "elements": elements
         }
     }
 
@@ -269,26 +291,270 @@ def _send_single_message(open_id: str, content: str, index: int, total: int, use
                 raise RuntimeError(f"发送消息失败，已重试 {max_retries} 次: {e}")
 
 
-def reply_message(open_id: str, reply_text: str, chat_type: str = "p2p"):
+def reply_message(open_id: str, reply_text: str, chat_type: str = "p2p", chat_id: str = "", original_message: str = "", message_id: str = ""):
     """
     回复飞书消息（MVP-4：将 LLM 回复发送给用户）
 
     根据聊天类型选择发送方式：
     - p2p：直接发送给用户
-    - group：@用户后发送（暂不实现群聊）
+    - group：发送到群聊并 @ 提问者
+
+    如果提供了 message_id，使用飞书的"回复"功能创建带引用线的消息
 
     Args:
         open_id: 用户 open_id
         reply_text: LLM 生成的回复内容
         chat_type: 聊天类型，p2p 或 group
+        chat_id: 群聊 ID（群聊时使用）
+        original_message: 用户原始消息（用于引用显示）
+        message_id: 消息 ID（用于创建飞书"回复"）
     """
-    if chat_type == "p2p":
+    if message_id:
+        # 使用飞书"回复"功能创建带引用线的消息
+        _send_reply_in_thread(message_id, reply_text)
+        logger.info(f"[feishu_messenger] 已使用回复功能回复消息 {message_id}")
+    elif chat_type == "p2p":
         # 私聊直接发送
-        send_text(open_id, reply_text)
+        _send_reply_with_quote(open_id, reply_text, original_message)
         logger.info(f"[feishu_messenger] 已回复用户 {open_id}: {reply_text[:50]}...")
+    elif chat_type == "group":
+        # 群聊：发送到群并 @ 提问者
+        if not chat_id:
+            logger.warning(f"[feishu_messenger] 群聊回复失败: chat_id 为空")
+            return
+        _send_group_message(chat_id, open_id, reply_text, original_message)
+        logger.info(f"[feishu_messenger] 已回复群 {chat_id}: {reply_text[:50]}...")
     else:
-        # 群聊暂不实现
-        logger.warning(f"[feishu_messenger] 群聊回复暂未实现: chat_type={chat_type}")
+        logger.warning(f"[feishu_messenger] 未知的聊天类型: chat_type={chat_type}")
+
+
+def _send_reply_with_quote(open_id: str, reply_text: str, original_message: str):
+    """
+    发送带引用原始消息的回复（私聊）
+
+    Args:
+        open_id: 用户 open_id
+        reply_text: LLM 回复内容
+        original_message: 用户原始消息
+    """
+    if not _client:
+        raise RuntimeError("飞书客户端未初始化，请先调用 init()")
+
+    thread = threading.Thread(
+        target=_send_reply_with_quote_sync,
+        args=(open_id, reply_text, original_message),
+        daemon=True
+    )
+    thread.start()
+
+
+def _send_reply_with_quote_sync(open_id: str, reply_text: str, original_message: str):
+    """
+    同步发送带引用的回复（内部使用）
+
+    Args:
+        open_id: 用户 open_id
+        reply_text: LLM 回复内容
+        original_message: 用户原始消息
+    """
+    max_retries = 3
+    base_delay = 1
+
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"[feishu_messenger] 发送带引用回复到 {open_id} (尝试 {attempt + 1}/{max_retries})")
+
+            # 构建带引用的卡片内容
+            card_content = _build_card_content(reply_text, original_message)
+            request = CreateMessageRequest.builder() \
+                .receive_id_type("open_id") \
+                .request_body(
+                    CreateMessageRequestBody.builder()
+                    .receive_id(open_id)
+                    .msg_type("interactive")
+                    .content(json.dumps(card_content))
+                    .build()
+                ) \
+                .build()
+
+            response = _client.im.v1.message.create(request)
+
+            if response.success():
+                logger.info(f"[feishu_messenger] 带引用回复发送成功")
+                return
+            else:
+                error_msg = f"飞书API错误: code={response.code}, msg={response.msg}"
+                logger.error(f"[feishu_messenger] {error_msg}")
+                raise RuntimeError(error_msg)
+
+        except Exception as e:
+            logger.error(f"[feishu_messenger] 带引用回复发送失败 (尝试 {attempt + 1}): {e}")
+
+            if attempt < max_retries - 1:
+                delay = base_delay * (2 ** attempt)
+                logger.info(f"[feishu_messenger] 等待 {delay} 秒后重试...")
+                time.sleep(delay)
+            else:
+                # 如果带引用的发送失败，回退到普通发送
+                logger.warning(f"[feishu_messenger] 带引用发送失败，回退到普通发送")
+                _send_text_sync(open_id, reply_text)
+
+
+def _send_group_message(chat_id: str, at_open_id: str, content: str, original_message: str = ""):
+    """
+    发送群聊消息并 @ 指定用户
+
+    Args:
+        chat_id: 群聊 ID
+        at_open_id: 要 @ 的用户 open_id
+        content: 消息内容
+        original_message: 用户原始消息（用于引用显示）
+    """
+    if not _client:
+        raise RuntimeError("飞书客户端未初始化，请先调用 init()")
+
+    thread = threading.Thread(
+        target=_send_group_message_sync,
+        args=(chat_id, at_open_id, content, original_message),
+        daemon=True
+    )
+    thread.start()
+
+
+def _send_group_message_sync(chat_id: str, at_open_id: str, content: str, original_message: str = ""):
+    """
+    同步发送群聊消息（内部使用）
+
+    Args:
+        chat_id: 群聊 ID
+        at_open_id: 要 @ 的用户 open_id
+        content: 消息内容
+        original_message: 用户原始消息（用于引用显示）
+    """
+    max_retries = 3
+    base_delay = 1
+
+    # 在消息前添加 @ 用户
+    at_text = f"<at user_id=\"{at_open_id}\"></at>\n\n{content}"
+
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"[feishu_messenger] 发送群消息到 {chat_id} (尝试 {attempt + 1}/{max_retries})")
+
+            # 构建带引用的卡片内容（如果有原始消息）
+            card_content = _build_card_content(at_text, original_message)
+            request = CreateMessageRequest.builder() \
+                .receive_id_type("chat_id") \
+                .request_body(
+                    CreateMessageRequestBody.builder()
+                    .receive_id(chat_id)
+                    .msg_type("interactive")
+                    .content(json.dumps(card_content))
+                    .build()
+                ) \
+                .build()
+
+            response = _client.im.v1.message.create(request)
+
+            if response.success():
+                logger.info(f"[feishu_messenger] 群消息发送成功")
+                return
+            else:
+                error_msg = f"飞书API错误: code={response.code}, msg={response.msg}"
+                logger.error(f"[feishu_messenger] {error_msg}")
+                raise RuntimeError(error_msg)
+
+        except Exception as e:
+            logger.error(f"[feishu_messenger] 群消息发送失败 (尝试 {attempt + 1}): {e}")
+
+            if attempt < max_retries - 1:
+                delay = base_delay * (2 ** attempt)
+                logger.info(f"[feishu_messenger] 等待 {delay} 秒后重试...")
+                time.sleep(delay)
+            else:
+                raise RuntimeError(f"发送群消息失败，已重试 {max_retries} 次: {e}")
+
+
+def _send_reply_in_thread(message_id: str, content: str):
+    """
+    使用飞书"回复"功能发送消息（创建带引用线的回复）
+
+    Args:
+        message_id: 要回复的消息 ID
+        content: 回复内容
+    """
+    if not _client:
+        raise RuntimeError("飞书客户端未初始化，请先调用 init()")
+
+    thread = threading.Thread(
+        target=_send_reply_in_thread_sync,
+        args=(message_id, content),
+        daemon=True
+    )
+    thread.start()
+
+
+def _send_reply_in_thread_sync(message_id: str, content: str):
+    """
+    同步发送回复消息（内部使用）
+
+    Args:
+        message_id: 要回复的消息 ID
+        content: 回复内容
+    """
+    max_retries = 3
+    base_delay = 1
+
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"[feishu_messenger] 发送回复到消息 {message_id} (尝试 {attempt + 1}/{max_retries})")
+
+            # 判断使用纯文本还是卡片
+            use_card = _should_use_card(content)
+
+            if use_card:
+                # 卡片消息
+                card_content = _build_card_content(content)
+                request = ReplyMessageRequest.builder() \
+                    .message_id(message_id) \
+                    .request_body(
+                        ReplyMessageRequestBody.builder()
+                        .content(json.dumps(card_content))
+                        .msg_type("interactive")
+                        .build()
+                    ) \
+                    .build()
+            else:
+                # 纯文本消息
+                request = ReplyMessageRequest.builder() \
+                    .message_id(message_id) \
+                    .request_body(
+                        ReplyMessageRequestBody.builder()
+                        .content(json.dumps({"text": content}))
+                        .msg_type("text")
+                        .build()
+                    ) \
+                    .build()
+
+            response = _client.im.v1.message.reply(request)
+
+            if response.success():
+                logger.info(f"[feishu_messenger] 回复发送成功")
+                return
+            else:
+                error_msg = f"飞书API错误: code={response.code}, msg={response.msg}"
+                logger.error(f"[feishu_messenger] {error_msg}")
+                raise RuntimeError(error_msg)
+
+        except Exception as e:
+            logger.error(f"[feishu_messenger] 回复发送失败 (尝试 {attempt + 1}): {e}")
+
+            if attempt < max_retries - 1:
+                delay = base_delay * (2 ** attempt)
+                logger.info(f"[feishu_messenger] 等待 {delay} 秒后重试...")
+                time.sleep(delay)
+            else:
+                raise RuntimeError(f"发送回复失败，已重试 {max_retries} 次: {e}")
 
 
 
